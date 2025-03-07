@@ -26,12 +26,12 @@ height=$(identify -format "%h" "$filename")
 new_width=$(( width + width / 10 ))
 new_height=$(( height + height / 10 ))
 extended="${filename%.*}-extended.png"
-convert \
+magick \
+  "$filename" \
   -gravity center \
   -background none \
   -extent ${new_width}x${new_height} \
   -geometry 128x128 \
-  "$filename" \
   "$extended"
 
 # Generate some shaky frames
@@ -47,14 +47,14 @@ while [ "$n" -lt "$count" ]; do
   [ "$y" -ge 0 ] && y="+$y"
 
   # Shake the image!
-  convert "$extended" -page "${x}${y}" -background none -flatten "$frame"-"$n".gif
+  magick "$extended" -page "${x}${y}" -background none -flatten "$frame"-"$n".gif
 
   n=$((n + 1))
 done
 
 # Combine the frames into a GIF
 gif="${filename%.*}-intensifies.gif"
-convert -background none -dispose Background -delay 1x30 -loop 0 "${frame}"-*.gif "$gif"
+magick "${frame}"-*.gif -background none -set dispose Background -delay 1x30 -loop 0  "$gif"
 
 # Clean up
 rm "$extended" "${frame}"-*.gif
