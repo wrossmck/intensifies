@@ -5,59 +5,81 @@
 
 set -euo pipefail
 
-# Number of frames of shaking
-count=10
-# Max pixels to move while shaking
-delta=4
+# Configuration: Number of frames and delay between them
+count=8
+# Delay between frames in 1/100 seconds (50 = 0.5s, 5 = 0.05s)
+delay=5
 
+# Check for input file
 if [ $# -eq 0 ]; then
   echo "Usage: $0 input.png"
   exit 1
 fi
 
 input=$1
+if [ ! -f "$input" ]; then
+  echo "Input file '$input' not found."
+  exit 1
+fi
+
+# Change to input file's directory for relative paths
 cd "$(dirname "$input")"
 
 filename=$(basename -- "$input")
 
-# Add 10% padding to width and height, then scale to 128x128
+# Scale image to 85% of 512x512 canvas
 width=$(identify -format "%w" "$filename")
 height=$(identify -format "%h" "$filename")
-new_width=$(( width + width / 10 ))
-new_height=$(( height + height / 10 ))
+canvas_size=512
+image_scale_num=17  # Numerator for 85% scaling (17/20)
+image_scale_den=20  # Denominator for 85% scaling
+image_width=$(( (canvas_size * image_scale_num) / image_scale_den ))
+image_height=$(( (canvas_size * image_scale_num) / image_scale_den ))
+# Centered positioning on canvas
+imgX=$(( (canvas_size - image_width) / 2 ))
+imgY=$(( (canvas_size - image_height) / 2 ))
+# Max possible positions for shake boundaries
+maxX=$(( canvas_size - image_width ))
+maxY=$(( canvas_size - image_height ))
+# Max shake distance (half the space from center to edge)
+maxXMove=$(( (maxX - imgX) / 2 ))
+maxYMove=$(( (maxY - imgY) / 2 ))
+# Scale the input image to fit
 extended="${filename%.*}-extended.png"
 magick \
   "$filename" \
   -gravity center \
   -background none \
-  -extent ${new_width}x${new_height} \
-  -geometry 128x128 \
+  -geometry ${image_width}x${image_height} \
   "$extended"
 
 # Generate some shaky frames
 frame="${filename%.*}-frame"
 n=0
 while [ "$n" -lt "$count" ]; do
-  # Generate some random shake
-  x=$((RANDOM % (delta * 2) - delta))
-  y=$((RANDOM % (delta * 2) - delta))
+  # Generate random shake
+  # Random sign for direction (±1)
+  sign_x=$(( RANDOM % 2 == 0 ? -1 : 1 ))
+  # Random offset: 0 to maxXMove, scaled and exaggerated by 1.5x
+  offset_x=$(( ((RANDOM % 100 * maxXMove * 3) / 2) / 100 ))
+  x=$(( imgX + offset_x * sign_x ))
+  
+  sign_y=$(( RANDOM % 2 == 0 ? -1 : 1 ))
+  offset_y=$(( ((RANDOM % 100 * maxYMove * 3) / 2) / 100 ))
+  y=$(( imgY + offset_y * sign_y ))
 
-  # Ensure coordinates are of the form +3 or -4
-  [ "$x" -ge 0 ] && x="+$x"
-  [ "$y" -ge 0 ] && y="+$y"
-
-  # Shake the image!
-  magick "$extended" -page "${x}${y}" -background none -flatten "$frame"-"$n".gif
+  # Create frame: composite extended image on transparent canvas at (x,y)
+  magick -size ${canvas_size}x${canvas_size} xc:none "$extended" -geometry +${x}+${y} -composite "$frame"-"$n".png
 
   n=$((n + 1))
 done
 
 # Combine the frames into a GIF
 gif="${filename%.*}-intensifies.gif"
-magick "${frame}"-*.gif -background none -set dispose Background -delay 1x30 -loop 0  "$gif"
+magick -delay $delay -dispose Background "${frame}"-*.png -loop 0 "$gif"
 
-# Clean up
-rm "$extended" "${frame}"-*.gif
+# Clean up temporary files
+rm "$extended" "${frame}"-*.png
 
 # We did it y'all
 echo "Created $gif. Enjoy!"
